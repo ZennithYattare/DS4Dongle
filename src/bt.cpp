@@ -915,12 +915,12 @@ void ds4_enable_mic(bool on) {
     ds4_set_output_hdr2(on ? 0x24 : 0x20);
     // Carry a mic volume with the enable: VolumeMic 0x00 has "special
     // behavior" (psdevwiki) and the enable was only seen to take effect on
-    // an output that also set volumes. 0x20: max gain (0x40) clips hard on
-    // close-talking (tone-burst test 2026-07-14: >30% samples pinned);
-    // half gain showed no clipping at the same acoustic level.
+    // an output that also set volumes. 0x40 is max gain: a real DS4 v2 runs
+    // its mic hot (near full-scale output), so a lower value reads as
+    // quieter than the real pad.
     uint8_t payload[31]{};
     payload[0] = 0x40;  // EnableVolumeMicUpdate
-    payload[20] = on ? 0x20 : 0x00; // VolumeMic (0x01..0x40)
+    payload[20] = on ? 0x40 : 0x00; // VolumeMic (0x01..0x40)
     ds4_output(payload, sizeof(payload));
 }
 
@@ -943,13 +943,15 @@ void ds4_set_led(uint8_t r, uint8_t g, uint8_t b) {
     ds4_output(payload, sizeof(payload));
 }
 
-// Headset left/right and builtin-speaker volume, 0-255.
+// Headset left/right and builtin-speaker volume, 0-255. The mic-volume field
+// is deliberately left out (EnableVolumeMicUpdate, bit 0x40, cleared):
+// ds4_enable_mic owns the mic gain, and updating it here would let a host
+// speaker-volume change stomp it to 0 and mute the headset mic mid-session.
 void ds4_set_volume(uint8_t left, uint8_t right, uint8_t speaker) {
     uint8_t payload[31]{};
-    payload[0] = 0xF0; // enable the volume fields only
+    payload[0] = 0xB0; // update headset L/R (0x10/0x20) + speaker (0x80) only
     payload[18] = left;
     payload[19] = right;
-    payload[20] = 0x00; // mic volume
     payload[21] = speaker;
     ds4_output(payload, sizeof(payload));
 }
