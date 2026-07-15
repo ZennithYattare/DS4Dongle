@@ -34,7 +34,7 @@ void usb_audio_reset_volume_sync() {
 #define UAC1_ENTITY_SPK_FEATURE_UNIT    0x02
 #define UAC1_ENTITY_MIC_FEATURE_UNIT    0x05
 
-// Measured with tools/volume_sweep.py (jack -> line-in RMS sweep, 2026-07-14):
+// Measured via a headphone-jack -> line-in RMS sweep (2026-07-14):
 // the DS4 headphone amp is linear in dB at 1.0 dB per byte step (0.97 measured)
 // from byte ~20 up to byte 80, and saturates hard at byte 80 -- bytes 80..255
 // are identical to within 0.01 dB. So the byte value IS a dB attenuation
