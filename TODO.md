@@ -42,6 +42,26 @@
 
 - use tools/config_tool.py to make configurations accessible
 
+- **config_tool.py doesn't work on Windows for the DS4 (root cause found
+  2026-07-15).** The config uses HID report IDs 0xF6–0xF9. The firmware handles
+  them, but they're **not declared** in our DS4 HID report descriptor
+  (`desc_hid_report_ds4` in `src/usb_descriptors.cpp`, kept byte-identical to a
+  real DS4 v2 → feature reports stop at 0xF2). Windows `hidclass.sys` rejects
+  GET/SET_FEATURE for any undeclared report ID → bare `read error`. Confirmed:
+  declared reports (0x02/0xA3/0x81/0xF2) read fine, 0xF7 fails. **The WebHID
+  tool (ds5.awalol.eu.org) hits the same wall** — it works on the DualSense
+  because that firmware declares these reports. Works fine on **Linux** (hidraw
+  passes raw requests through, no descriptor check).
+  - To support Windows: declare 0xF6–0xF9 as HID feature reports (count 63) in
+    `desc_hid_report_ds4` + bump `wDescriptorLength`/static_assert, then reflash.
+    Costs USB indistinguishability from a real DS4 v2 → put it behind a build
+    flag (e.g. `ENABLE_CONFIG_HID`) so the default build stays stealthy.
+  - `config_tool.py` already cleaned up for DS4: correct naming/PID (09CC),
+    schema v6, `(DS4: no effect)` tags on DualSense-only fields
+    (haptics_gain/headset_volume/speaker_gain/audio_buffer_length/
+    controller_mode/trigger_reduce), and an honest Windows diagnostic instead of
+    `read error`.
+
 - **Polling rates: proper testing of all three modes.** Rates measured
   2026-07-14 via hidraw timestamps after a config + USB reconnect per mode:
   mode 0 → bInterval 4, exactly 250 reports/s (median gap 4.00 ms);
