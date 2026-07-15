@@ -96,6 +96,19 @@ FIELDS = [
     ("lock_volume",        "u8",    lambda v: v in (0, 1),       "0/1 (ignore the volume change from SetStateData(game or software))"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
+
+# DualSense-only fields the DS4 firmware stores and range-clamps but never acts
+# on (the "(DS4: no effect)" ones above). They MUST stay in FIELDS so the packed
+# Config_body layout still round-trips -- the tool simply hides them from `get`
+# and `fields` and refuses to `set` them. Their on-device bytes are preserved
+# untouched (read_config reads them; write_config writes them straight back).
+DS4_NO_EFFECT = frozenset({
+    "haptics_gain", "headset_volume", "speaker_gain",
+    "audio_buffer_length", "controller_mode", "trigger_reduce",
+})
+# Fields shown to the user and (for the settable ones) accepted by `set`.
+VISIBLE_FIELDS = [f for f in FIELDS if f[0] not in DS4_NO_EFFECT]
+
 # Little-endian, no padding -- matches __attribute__((packed)) Config_body.
 STRUCT_FMT = "<" + "".join(KIND_TO_CODE[f[1]] for f in FIELDS)
 BODY_SIZE = struct.calcsize(STRUCT_FMT)
@@ -201,8 +214,8 @@ def fmt_value(name, value):
 
 
 def print_config(cfg):
-    width = max(len(n) for n in FIELD_NAMES)
-    for name, _kind, _ok, helptext in FIELDS:
+    width = max(len(f[0]) for f in VISIBLE_FIELDS)
+    for name, _kind, _ok, helptext in VISIBLE_FIELDS:
         print(f"  {name:<{width}} = {fmt_value(name, cfg[name]):<8}  # {helptext}")
 
 
@@ -215,6 +228,9 @@ def parse_assignment(token):
         sys.exit(f"Unknown field '{name}'. Run 'config_tool.py fields' to list them.")
     if name == "config_version":
         sys.exit("config_version is managed by the firmware and cannot be set.")
+    if name in DS4_NO_EFFECT:
+        sys.exit(f"{name} is a DualSense-only setting with no effect on a DualShock 4; "
+                 "it cannot be set.")
     kind = dict((f[0], f[1]) for f in FIELDS)[name]
     validator = dict((f[0], f[2]) for f in FIELDS)[name]
     try:
@@ -228,11 +244,15 @@ def parse_assignment(token):
 
 
 def cmd_fields(_args):
-    width = max(len(n) for n in FIELD_NAMES)
+    width = max(len(f[0]) for f in VISIBLE_FIELDS)
     print(f"Config_body ({BODY_SIZE} bytes, schema version {CONFIG_VERSION}):")
-    for name, kind, _ok, helptext in FIELDS:
+    for name, kind, _ok, helptext in VISIBLE_FIELDS:
         ro = " (read-only)" if name == "config_version" else ""
         print(f"  {name:<{width}} {kind:<6} {helptext}{ro}")
+    hidden = len(FIELDS) - len(VISIBLE_FIELDS)
+    if hidden:
+        print(f"\n({hidden} DualSense-only fields with no effect on a DS4 are "
+              "hidden and cannot be set,\n but remain in the {}-byte layout.)".format(BODY_SIZE))
 
 
 def cmd_get(_args):
