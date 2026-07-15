@@ -65,53 +65,49 @@ FEATURE_REPORT_LEN = SET_DATA_LEN + 1  # report id + descriptor report count
 
 CONFIG_VERSION = 6       # src/config.cpp CONFIG_VERSION (display only)
 
-# struct.pack/unpack codes per field kind.
-KIND_TO_CODE = {"u8": "B", "float": "f"}
+# struct.pack/unpack codes per field kind. "resN" is N reserved bytes: a slot
+# the firmware's Config_body (src/config.h) still defines for a DualSense-only
+# setting the DS4 does not use. This is a DS4-only tool, so those slots carry no
+# name or meaning here -- they exist purely to keep the packed layout aligned
+# with the firmware. Reserved bytes unpack to a bytes object and are written
+# back verbatim; they are never shown or set.
+KIND_TO_CODE = {"u8": "B", "res1": "1s", "res2": "2s", "res4": "4s"}
+RESERVED_KINDS = {"res1", "res2", "res4"}
 
 # FIELDS is the single source of truth for the packed Config_body layout
 # (src/config.h). To add/remove/reorder a field, edit ONLY this table -- the
 # binary format (STRUCT_FMT) is derived from the 'kind' column below.
-# name, kind, validator(value)->bool, help. Order MUST match Config_body.
-# help text marked "(DS4: no effect)" is a field the firmware still stores and
-# range-clamps (so the struct layout round-trips) but never reads at runtime --
-# it is a DualSense concept inherited from the upstream config. Verified against
-# src/*.cpp: only the unmarked fields are consumed by the DS4 firmware.
+# name, kind, validator(value)->bool, help. Order and sizes MUST match
+# Config_body. The res* slots stand in for fields the DS4 firmware ignores; do
+# not repurpose them without matching the firmware struct and bumping
+# CONFIG_VERSION.
 FIELDS = [
     ("config_version",     "u8",    lambda v: True,              "config schema version (read-only, managed by firmware)"),
-    ("haptics_gain",       "float", lambda v: 1.0 <= v <= 2.0,   "[1.0, 2.0] (DS4: no effect)"),
+    ("_reserved_a",        "res4",  None,                        ""),  # firmware haptics_gain (float)
     ("speaker_volume",     "u8",    lambda v: 0 <= v <= 127,     "[0, 127] (seeds the initial USB speaker volume)"),
-    ("headset_volume",     "u8",    lambda v: 0 <= v <= 127,     "[0, 127] (DS4: no effect)"),
-    ("speaker_gain",       "u8",    lambda v: 0 <= v <= 7,       "[0, 7] (DS4: no effect)"),
+    ("_reserved_b",        "res2",  None,                        ""),  # firmware headset_volume, speaker_gain
     ("inactive_time",      "u8",    lambda v: 0 <= v <= 60,      "[0, 60] minutes (0 disable)"),
     ("disable_pico_led",   "u8",    lambda v: v in (0, 1),       "0/1"),
     ("polling_rate_mode",  "u8",    lambda v: v in (0, 1, 2),    "0:250Hz 1:500Hz 2:real-time"),
-    ("audio_buffer_length","u8",    lambda v: 16 <= v <= 128,    "[16, 128] (DS4: no effect)"),
-    ("controller_mode",    "u8",    lambda v: v in (0, 1, 2),    "0:DS5 1:DSE 2:Auto (DS4: no effect)"),
+    ("_reserved_c",        "res2",  None,                        ""),  # firmware audio_buffer_length, controller_mode
     ("enable_usb_sn",      "u8",    lambda v: v in (0, 1),       "0/1 (USB serial number)"),
     ("ps_shortcut_enabled","u8",    lambda v: v in (0, 1),       "0/1 (Xbox Game Bar via HID keyboard)"),
     ("mic_select",         "u8",    lambda v: v in (0, 1, 2, 3), "0:auto 1:builtin 2:headphone 3:disable"),
     ("speaker_select",     "u8",    lambda v: v in (0, 1, 2, 3), "0:auto 1:builtin 2:headphone 3:disable"),
     ("enable_wake",        "u8",    lambda v: v in (0, 1),       "0/1 (wake host on PS press)"),
-    ("trigger_reduce",     "u8",    lambda v: 0 <= v <= 10,      "[0, 10] (0: auto) (DS4: no effect)"),
+    ("_reserved_d",        "res1",  None,                        ""),  # firmware trigger_reduce
     ("lock_volume",        "u8",    lambda v: v in (0, 1),       "0/1 (ignore the volume change from SetStateData(game or software))"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
-
-# DualSense-only fields the DS4 firmware stores and range-clamps but never acts
-# on (the "(DS4: no effect)" ones above). They MUST stay in FIELDS so the packed
-# Config_body layout still round-trips -- the tool simply hides them from `get`
-# and `fields` and refuses to `set` them. Their on-device bytes are preserved
-# untouched (read_config reads them; write_config writes them straight back).
-DS4_NO_EFFECT = frozenset({
-    "haptics_gain", "headset_volume", "speaker_gain",
-    "audio_buffer_length", "controller_mode", "trigger_reduce",
-})
-# Fields shown to the user and (for the settable ones) accepted by `set`.
-VISIBLE_FIELDS = [f for f in FIELDS if f[0] not in DS4_NO_EFFECT]
+# The DS4 settings the tool actually exposes (reserved padding excluded).
+VISIBLE_FIELDS = [f for f in FIELDS if f[1] not in RESERVED_KINDS]
+VISIBLE_NAMES = {f[0] for f in VISIBLE_FIELDS}
 
 # Little-endian, no padding -- matches __attribute__((packed)) Config_body.
 STRUCT_FMT = "<" + "".join(KIND_TO_CODE[f[1]] for f in FIELDS)
 BODY_SIZE = struct.calcsize(STRUCT_FMT)
+RESERVED_BYTES = sum(struct.calcsize(KIND_TO_CODE[f[1]])
+                     for f in FIELDS if f[1] in RESERVED_KINDS)
 
 
 def is_gamepad_hid(devinfo):
@@ -208,8 +204,6 @@ def write_config(dev, cfg, save):
 
 
 def fmt_value(name, value):
-    if name == "haptics_gain":
-        return f"{value:.3f}"
     return str(value)
 
 
@@ -224,13 +218,10 @@ def parse_assignment(token):
         sys.exit(f"Bad assignment '{token}', expected name=value.")
     name, raw = token.split("=", 1)
     name = name.strip()
-    if name not in FIELD_NAMES:
+    if name not in VISIBLE_NAMES:
         sys.exit(f"Unknown field '{name}'. Run 'config_tool.py fields' to list them.")
     if name == "config_version":
         sys.exit("config_version is managed by the firmware and cannot be set.")
-    if name in DS4_NO_EFFECT:
-        sys.exit(f"{name} is a DualSense-only setting with no effect on a DualShock 4; "
-                 "it cannot be set.")
     kind = dict((f[0], f[1]) for f in FIELDS)[name]
     validator = dict((f[0], f[2]) for f in FIELDS)[name]
     try:
@@ -249,10 +240,10 @@ def cmd_fields(_args):
     for name, kind, _ok, helptext in VISIBLE_FIELDS:
         ro = " (read-only)" if name == "config_version" else ""
         print(f"  {name:<{width}} {kind:<6} {helptext}{ro}")
-    hidden = len(FIELDS) - len(VISIBLE_FIELDS)
-    if hidden:
-        print(f"\n({hidden} DualSense-only fields with no effect on a DS4 are "
-              "hidden and cannot be set,\n but remain in the {}-byte layout.)".format(BODY_SIZE))
+    if RESERVED_BYTES:
+        print(f"\n({RESERVED_BYTES} bytes are reserved for firmware settings the DS4 "
+              f"does not use;\n they are kept in the {BODY_SIZE}-byte layout but not "
+              "exposed.)")
 
 
 def cmd_get(_args):
