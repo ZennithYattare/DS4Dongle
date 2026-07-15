@@ -100,6 +100,42 @@ jobs:
           path: artifacts/${{ matrix.artifact }}.uf2
           if-no-files-found: error
 
+  comment-artifacts:
+    name: Comment artifact links on PR
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Post or update artifact links
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MARKER="<!-- build-artifacts-comment -->"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          LINES="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[] | "- [`\(.name)`](" + "'"$RUN_URL"'" + "/artifacts/\(.id))"')"
+
+          BODY="$MARKER
+          ### Firmware artifacts for \`${{ github.event.pull_request.head.sha }}\`
+          Built by [this run]($RUN_URL) (sign-in to GitHub required, downloads start immediately):
+
+          $LINES"
+
+          EXISTING_ID="$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq "[.[] | select(.body | startswith(\"$MARKER\"))][0].id")"
+
+          if [ -n "$EXISTING_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$EXISTING_ID" \
+              -X PATCH -f body="$BODY"
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --repo "${{ github.repository }}" --body "$BODY"
+          fi
+
   release:
     name: Publish prerelease
     needs: build
