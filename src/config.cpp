@@ -16,14 +16,24 @@
 
 constexpr uint32_t CONFIG_MAGIC = 0x66ccff00;
 constexpr uint16_t CONFIG_VERSION = 6; // 如果想要强制重置配置，再更新 CONFIG_VERSION。
-constexpr uint32_t CONFIG_FLASH_OFFSET = PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE;
+#ifdef DS5_CONFIG_FLASH_OFFSET
+#define DS5_CONFIG_FLASH_OFFSET_EXPLICIT 1
+#else
+#define DS5_CONFIG_FLASH_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
+#endif
+constexpr uint32_t CONFIG_FLASH_OFFSET = DS4_CONFIG_FLASH_OFFSET;
 static Config config{};
+bool is_dse = false;
 
 // 编译期保护
 // 判断Config结构体是否能放进flash 256bytes
 static_assert(sizeof(Config) <= FLASH_PAGE_SIZE);
 // 配置区起始地址必须按 flash sector 对齐。
 static_assert(CONFIG_FLASH_OFFSET % FLASH_SECTOR_SIZE == 0);
+#if defined(DS4_CONFIG_FLASH_OFFSET_EXPLICIT) && defined(PICO_FLASH_BANK_STORAGE_OFFSET)
+static_assert(CONFIG_FLASH_OFFSET + FLASH_SECTOR_SIZE <= PICO_FLASH_BANK_STORAGE_OFFSET,
+              "Config sector overlaps BTstack flash banks");
+#endif
 
 uint32_t calc_config_crc(const Config &con) {
     return crc32(reinterpret_cast<const uint8_t *>(&con.body), sizeof(Config_body));

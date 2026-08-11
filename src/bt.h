@@ -25,6 +25,10 @@ bool bt_is_connected();
 void bt_set_scan_idle();
 void bt_set_scan_active();
 void bt_write(const uint8_t *data, uint16_t len);
+#if defined(DS4_WAVESHARE_STABLE_RUNTIME)
+void bt_feature_cache_init_before_tusb();
+uint16_t bt_copy_cached_feature(uint8_t report_id, uint8_t *buffer, uint16_t requested_length);
+#endif
 void bt_get_signal_strength(int8_t *rssi);
 std::vector<uint8_t> get_feature_data(uint8_t reportId,uint16_t len);
 void init_feature();

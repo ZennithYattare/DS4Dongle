@@ -31,6 +31,13 @@
 #define ENABLE_SERIAL 0
 #endif
 
+bool ds_mode() {
+    if (get_config().controller_mode == 2) {
+        return !is_dse;
+    }
+    return get_config().controller_mode == 0;
+}
+
 enum {
     ITF_NUM_AUDIO_CONTROL = 0,
     ITF_NUM_AUDIO_STREAMING_OUT,
