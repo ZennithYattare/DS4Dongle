@@ -980,10 +980,7 @@ vector<uint8_t> get_feature_data(uint8_t reportId, uint16_t len) {
         // DSE: Set Profile Save?
         reportId == 0x63 ||
         reportId == 0x65 ||
-        reportId == 0x64 ||
-        // DSE profile slots: return cache, but refetch in background so the
-        // PS app's unlock(0x80) -> re-read flow sees fresh controller data.
-    ) {
+        reportId == 0x64) {
         if (hid_control_cid != 0) {
             uint8_t get_feature[] = {0x43, reportId};
 #if defined(DS4_WAVESHARE_STABLE_RUNTIME)
