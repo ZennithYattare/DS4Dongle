@@ -787,24 +787,13 @@ static void __not_in_flash_func(l2cap_packet_handler)(uint8_t packet_type, uint1
                 printf_hexdump(packet, size);
 #endif
                 if (report_id == 0x20 && size >= 24) {
-                    if (packet[23] == 0x44) {
-                        printf("Connected DSE Controller\n");
-                        is_dse = true;
-                        dse_on_connect();
-
-                        if (get_config().controller_mode == 0) {
-                            feature_data[0x20].assign(report20,report20 + sizeof(report20));
-                        }
-                    } else {
-                        printf("Connected DS4 Controller\n");
-                        is_dse = false;
-                    }
+                    printf("Connected DS4 Controller\n");
+                    is_dse = false;
 #if !ENABLE_SERIAL && !defined(DS4_WAVESHARE_STABLE_RUNTIME)
                     if (!tud_suspended()) tud_connect();
 #endif
                 }
             }
-            dse_on_control_packet(packet, size);
             bt_data_callback(CONTROL, packet, size);
         } else {
             printf("[L2CAP] Data on unknown channel 0x%04X (Interrupt: 0x%04X, Control: 0x%04X)\n",
@@ -994,7 +983,6 @@ vector<uint8_t> get_feature_data(uint8_t reportId, uint16_t len) {
         reportId == 0x64 ||
         // DSE profile slots: return cache, but refetch in background so the
         // PS app's unlock(0x80) -> re-read flow sees fresh controller data.
-        dse_is_profile_report(reportId)
     ) {
         if (hid_control_cid != 0) {
             uint8_t get_feature[] = {0x43, reportId};
@@ -1027,7 +1015,6 @@ void set_feature_data(uint8_t reportId, uint8_t *data, uint16_t len) {
         printf("[L2CAP] Requesting Set Feature Report 0x%02X\n", reportId);
         printf_hexdump(get_feature, len + 2);
 #endif
-        dse_on_profile_write(reportId);
     }
 }
 void bt_power_off_controller() {

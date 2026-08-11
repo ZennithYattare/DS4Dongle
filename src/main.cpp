@@ -37,6 +37,7 @@
 #include "pico/util/queue.h"
 
 bool spk_active = false;
+static uint8_t reportSeqCounter = 0;
 
 // Cached USB input report 0x01 payload (63 bytes). Starts neutral: centered
 // sticks, hat released (0x08).
@@ -343,9 +344,6 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
     if (report_type == HID_REPORT_TYPE_FEATURE) {
         // Edge profiles are prefetched by dse_task(). NAK until the bounded
         // main-loop job finishes instead of returning a cacheable zero page.
-        if (dse_is_profile_report(report_id) && !dse_profiles_ready()) {
-            return 0;
-        }
         return bt_copy_cached_feature(report_id, buffer, reqlen);
     }
 #endif    
